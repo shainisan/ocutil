@@ -14,7 +14,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'ocutil=ocutil:main',
+            'ocutil=ocutil.main:main',
         ],
     },
     python_requires='>=3.6',

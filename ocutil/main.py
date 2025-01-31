@@ -4,11 +4,14 @@ import argparse
 import os
 import sys
 import multiprocessing
-from utils.oci_manager import OCIManager
-from utils.uploader import Uploader
-from utils.downloader import Downloader
 from urllib.parse import urlparse
-import oci
+import oci  # Ensure oci is imported for exception handling
+
+from ocutil.utils.oci_manager import OCIManager
+from ocutil.utils.uploader import Uploader
+from ocutil.utils.downloader import Downloader
+
+import logging
 
 def is_remote_path(path):
     return path.startswith("oc://")
@@ -30,6 +33,16 @@ def parse_remote_path(remote_path):
     return bucket_name, object_path
 
 def main():
+    # Setup logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    logger = logging.getLogger('ocutil')
+
     parser = argparse.ArgumentParser(
         description="ocutil: Oracle Cloud Object Storage CLI (similar to gsutil)."
     )
@@ -54,7 +67,7 @@ def main():
         local_destination = destination
 
         if not os.path.isdir(local_destination):
-            print(f"Error: Destination '{local_destination}' is not a valid directory.")
+            logger.error(f"Destination '{local_destination}' is not a valid directory.")
             return
 
         oci_manager = OCIManager(config_profile=config_profile)
@@ -66,7 +79,7 @@ def main():
             # Treat as folder
             folder_name = os.path.basename(os.path.normpath(object_path))
             new_destination = os.path.join(local_destination, folder_name)
-            print(f"Using bulk download with {cpu_count} parallel threads into '{new_destination}'.")
+            logger.info(f"Using bulk download with {cpu_count} parallel threads into '{new_destination}'.")
             downloader.download_folder(remote_path, new_destination, parallel_count=cpu_count)
         else:
             # Attempt to treat as single file; if it fails, treat as folder
@@ -74,14 +87,14 @@ def main():
                 # Attempt to retrieve the exact object to determine if it's a single file
                 oci_manager.object_storage.get_object(oci_manager.namespace, bucket_name, object_path)
                 # If no exception, it's a single file
-                print(f"Using single file download with 1 thread.")
+                logger.info(f"Using single file download with 1 thread.")
                 local_path = os.path.join(local_destination, os.path.basename(object_path))
                 downloader.download_single_file(bucket_name, object_path, local_path)
-                print("Download operation completed.")
+                logger.info("Download operation completed.")
             except oci.exceptions.ServiceError as e:
                 if e.status == 404:
                     # Object doesn't exist; treat as bulk download
-                    print(f"Object not found. Treating as bulk download with {cpu_count} parallel threads.")
+                    logger.info(f"Object not found. Treating as bulk download with {cpu_count} parallel threads.")
                     # Extract folder name
                     folder_name = os.path.basename(os.path.normpath(object_path))
                     new_destination = os.path.join(local_destination, folder_name)
@@ -93,10 +106,10 @@ def main():
                     remote_prefix = f"oc://{bucket_name}/{object_prefix}"
                     downloader.download_folder(remote_prefix, new_destination, parallel_count=cpu_count)
                 else:
-                    print(f"Error retrieving object: {e}")
+                    logger.error(f"Error retrieving object: {e}")
                     return
             except Exception as e:
-                print(f"Unexpected error: {e}")
+                logger.error(f"Unexpected error: {e}")
                 return
 
     elif is_remote_path(destination):
@@ -108,29 +121,29 @@ def main():
         uploader = Uploader(oci_manager=oci_manager)
 
         if os.path.isfile(local_source):
-            print(f"Using single file upload with 1 thread.")
+            logger.info(f"Using single file upload with 1 thread.")
             try:
                 bucket_name, object_path = parse_remote_path(remote_destination)
             except ValueError as e:
-                print(f"Error parsing remote path: {e}")
+                logger.error(f"Error parsing remote path: {e}")
                 return
             uploader.upload_single_file(local_source, bucket_name, object_path)
         elif os.path.isdir(local_source):
-            print(f"Using bulk upload with {cpu_count} parallel threads.")
+            logger.info(f"Using bulk upload with {cpu_count} parallel threads.")
             try:
                 bucket_name, object_path = parse_remote_path(remote_destination)
             except ValueError as e:
-                print(f"Error parsing remote path: {e}")
+                logger.error(f"Error parsing remote path: {e}")
                 return
             uploader.upload_folder(local_source, bucket_name, object_path, parallel_count=cpu_count)
         else:
-            print(f"Error: Source '{local_source}' is neither a file nor a directory.")
+            logger.error(f"Error: Source '{local_source}' is neither a file nor a directory.")
             return
     else:
-        print("Error: Invalid command. Ensure that either the source or destination is a remote path starting with 'oc://'.")
-        print("Usage:")
-        print("  To upload: ocutil <local_file_or_directory> oc://bucket/path")
-        print("  To download: ocutil oc://bucket/path <destination_directory>")
+        logger.error("Error: Invalid command. Ensure that either the source or destination is a remote path starting with 'oc://'.")
+        logger.info("Usage:")
+        logger.info("  To upload: ocutil <local_file_or_directory> oc://bucket/path")
+        logger.info("  To download: ocutil oc://bucket/path <destination_directory>")
         sys.exit(1)
 
 if __name__ == "__main__":
