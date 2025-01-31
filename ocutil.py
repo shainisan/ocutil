@@ -19,14 +19,10 @@ def parse_remote_path(remote_path):
     if parsed.scheme != "oc":
         raise ValueError("Remote path must start with 'oc://'")
     
-    # Remove leading '/' from path
-    path = parsed.path.lstrip('/')
-    if '/' in path:
-        bucket_name, object_prefix = path.split('/', 1)
-        object_prefix = object_prefix.rstrip('/') + '/'  # Ensure it ends with '/'
-    else:
-        bucket_name = path
-        object_prefix = ''
+    bucket_name = parsed.netloc
+    object_prefix = parsed.path.lstrip('/')
+    if object_prefix and not object_prefix.endswith('/'):
+        object_prefix += '/'  # Ensure it ends with '/'
     
     return bucket_name, object_prefix
 
