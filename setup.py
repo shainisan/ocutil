@@ -6,11 +6,12 @@ setup(
     name='ocutil',
     version='1.0.0',
     description='Oracle Cloud Object Storage CLI utility',
-    author='Your Name',
+    author='Shai Nisan',
     author_email='your.email@example.com',
     packages=find_packages(),
     install_requires=[
         'oci',
+        'tqdm',
     ],
     entry_points={
         'console_scripts': [
