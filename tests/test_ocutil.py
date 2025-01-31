@@ -234,33 +234,28 @@ class TestOCUtil(unittest.TestCase):
         with patch.object(sys, 'argv', test_args):
             with patch('ocutil.utils.uploader.Uploader.upload_folder') as mock_upload_folder:
                 main()
-                # The uploader.upload_folder is called with keyword argument object_prefix.
-                # Since no object path was provided in the destination, main() should set:
-                # object_prefix = basename(self.folder_path)
+                # Since uploader.upload_folder is called positionally:
+                # arguments: (local_source, bucket_name, object_prefix, parallel_count=...)
+                args = mock_upload_folder.call_args.args
                 expected_prefix = os.path.basename(os.path.normpath(self.folder_path))
-                mock_upload_folder.assert_called_once()
-                # Get the keyword arguments passed to upload_folder
-                kwargs = mock_upload_folder.call_args.kwargs
-                self.assertEqual(kwargs.get('object_prefix'), expected_prefix,
-                                 "Expected the folder basename to be appended as the remote prefix.")
+                self.assertEqual(args[2], expected_prefix,
+                                "Expected the folder basename to be appended as the remote prefix.")
 
     def test_main_upload_folder_with_wildcard(self):
         """
         Simulate calling:
             ocutil folder/* oc://test-bucket/
-        Since the source includes a wildcard ('*'), the main() logic should not wrap
-        the folder (i.e. should leave the object_prefix as provided, which in this case is empty).
+        Since the source includes a wildcard ('*'), main() should expand it and
+        upload each file individually via upload_single_file.
         """
         test_args = ["ocutil", os.path.join(self.folder_path, "*"), f"oc://{self.BUCKET_NAME}/"]
         with patch.object(sys, 'argv', test_args):
-            with patch('ocutil.utils.uploader.Uploader.upload_folder') as mock_upload_folder:
+            with patch('ocutil.utils.uploader.Uploader.upload_single_file') as mock_upload_single:
                 main()
-                # For destination "oc://test-bucket/", parse_remote_path returns object_path = "".
-                expected_prefix = ""
-                mock_upload_folder.assert_called_once()
-                kwargs = mock_upload_folder.call_args.kwargs
-                self.assertEqual(kwargs.get('object_prefix'), expected_prefix,
-                                 "Expected the remote prefix to remain unchanged when using wildcard.")
+                # In self.folder_path we created 2 files.
+                self.assertEqual(mock_upload_single.call_count, 2,
+                                "Expected two single file uploads when using wildcard.")
+
 
 if __name__ == "__main__":
     unittest.main()

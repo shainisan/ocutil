@@ -136,25 +136,33 @@ def main():
                 logger.error(f"Error parsing remote path: {e}")
                 return
 
-            if os.path.isfile(local_source):
+            # --- NEW LOGIC: Check for wildcard in source ---
+            if '*' in source:
+                # Expand the wildcard into a list of files.
+                import glob
+                files = glob.glob(source)
+                if not files:
+                    logger.error(f"No files matched wildcard: {source}")
+                    sys.exit(1)
+                for file_path in files:
+                    # For each file, adjust remote object path.
+                    adjusted_path = adjust_remote_object_path(file_path, object_path)
+                    logger.info(f"Initiating single file upload for '{file_path}' as '{adjusted_path}'.")
+                    uploader.upload_single_file(file_path, bucket_name, adjusted_path)
+            elif os.path.isfile(local_source):
+                # Single file upload.
                 object_path = adjust_remote_object_path(local_source, object_path)
                 logger.info(f"Adjusted object path for file upload: '{object_path}'")
                 logger.info("Initiating single file upload.")
                 uploader.upload_single_file(local_source, bucket_name, object_path)
             elif os.path.isdir(local_source):
-                # --- NEW/UPDATED CODE STARTS HERE ---
-                # Decide whether to include the folder name as a prefix.
-                # If the source argument (as passed by the user) does NOT contain a wildcard,
-                # then we prepend the folder’s basename to the remote path.
-                if '*' not in source:
-                    if not object_path:
-                        # No object path provided: use the folder’s basename.
-                        object_path = os.path.basename(os.path.normpath(local_source))
-                    elif object_path.endswith('/'):
-                        # Remote destination ends with a slash: append folder’s basename.
-                        object_path = object_path.rstrip('/') + '/' + os.path.basename(os.path.normpath(local_source))
-                # --- NEW/UPDATED CODE ENDS HERE ---
-
+                # Folder upload.
+                # If no wildcard was used and remote object_path is empty or ends with '/',
+                # then prepend the folder’s basename.
+                if not object_path:
+                    object_path = os.path.basename(os.path.normpath(local_source))
+                elif object_path.endswith('/'):
+                    object_path = object_path.rstrip('/') + '/' + os.path.basename(os.path.normpath(local_source))
                 logger.info(f"Initiating bulk upload of folder '{local_source}' with {cpu_count} parallel threads.")
                 uploader.upload_folder(local_source, bucket_name, object_path, parallel_count=cpu_count)
             else:
