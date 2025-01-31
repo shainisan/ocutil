@@ -13,18 +13,18 @@
 #### 1. Uploading
 File:
 
-'ocutil /path/to/local/file.txt oc://bucket-name/path/to/destination/file.txt'
+`ocutil /path/to/local/file.txt oc://bucket-name/path/to/destination/file.txt`
 
 Folder:
 
-'ocutil /path/to/local/folder oc://bucket-name/path/to/destination/'
+`ocutil /path/to/local/folder oc://bucket-name/path/to/destination/`
 
 #### 2. Downloading
 File:
 
-'ocutil oc://bucket-name/path/to/source/file.txt /path/to/local/destination/'
+`ocutil oc://bucket-name/path/to/source/file.txt /path/to/local/destination/`
 
 Folder:
 
-'ocutil oc://bucket-name/path/to/source/ /path/to/local/destination/'
+`ocutil oc://bucket-name/path/to/source/ /path/to/local/destination/`
 
