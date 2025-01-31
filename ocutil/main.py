@@ -127,6 +127,13 @@ def main():
             except ValueError as e:
                 logger.error(f"Error parsing remote path: {e}")
                 return
+
+            # **Add the following block to handle directory destinations**
+            if object_path.endswith('/'):
+                # Append the filename to the object path
+                object_path = os.path.join(object_path, os.path.basename(local_source)).replace('\\', '/')
+                logger.info(f"Appending filename to object path: '{object_path}'")
+
             uploader.upload_single_file(local_source, bucket_name, object_path)
         elif os.path.isdir(local_source):
             logger.info(f"Using bulk upload with {cpu_count} parallel threads.")
