@@ -106,7 +106,6 @@ def main():
                     sys.exit(1)
 
 
-
         elif is_remote_path(destination):
             # Upload operation
             local_source = source
@@ -122,10 +121,19 @@ def main():
                 return
 
             if os.path.isfile(local_source):
-                # If no object path is provided or it ends with '/', use the file's basename.
-                if not object_path or object_path.endswith('/'):
-                    object_path = (object_path or '') + os.path.basename(local_source)
+                # If no object path is provided, use the file's basename.
+                if not object_path:
+                    object_path = os.path.basename(local_source)
                     logger.info(f"Adjusted object path for file upload: '{object_path}'")
+                else:
+                    # Determine if the given object_path looks like a file name
+                    # by checking if it has an extension.
+                    name, ext = os.path.splitext(object_path)
+                    # If there's no extension and the provided object_path
+                    # does not already match the source filename, assume it’s a folder.
+                    if ext == "" and (object_path.rstrip('/') != os.path.basename(local_source)):
+                        object_path = object_path.rstrip('/') + '/' + os.path.basename(local_source)
+                        logger.info(f"Adjusted object path for file upload (treated as folder): '{object_path}'")
                 logger.info("Initiating single file upload.")
                 uploader.upload_single_file(local_source, bucket_name, object_path)
             elif os.path.isdir(local_source):
