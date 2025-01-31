@@ -1,30 +1,61 @@
 # ocutil
 
-**ocutil** is a simple cli for interacting with Oracle Cloud Storagein a similar way to `gsutil`.ly, enhancing speed and efficiency.
+**ocutil** is a lightweight command-line tool for interacting with Oracle Cloud Object Storage — similar to `gsutil`.
+
+> **Note:** Ensure that you have set up the OCI CLI configuration before using ocutil.
 
 ## Installation
-(of course that you need to setup OCI CLI by yourself)
 
-    pip install git+https://github.com/shainisan/ocutil.git
+Install directly from GitHub:
 
+```bash
+pip install git+https://github.com/shainisan/ocutil.git
+```
 
-### **Commands**
+## Usage
 
-#### 1. Uploading
-File:
+The general syntax is:
 
-`ocutil /path/to/local/file.txt oc://bucket-name/path/to/destination/file.txt`
+```bash
+ocutil <source> <destination>
+```
 
-Folder:
+Where `<source>` and `<destination>` can be either local paths or remote paths using the format `oc://bucket-name/path`.
 
-`ocutil /path/to/local/folder oc://bucket-name/path/to/destination/`
+### Uploading
 
-#### 2. Downloading
-File:
+- **Upload a file:**
 
-`ocutil oc://bucket-name/path/to/source/file.txt /path/to/local/destination/`
+  ```bash
+  ocutil /path/to/local/file.txt oc://my-bucket/path/to/destination/file.txt
+  ```
 
-Folder:
+- **Upload a folder (wrapped as a folder):**
 
-`ocutil oc://bucket-name/path/to/source/ /path/to/local/destination/`
+  ```bash
+  ocutil /path/to/local/folder oc://my-bucket/path/to/destination/
+  ```
 
+- **Upload folder contents without wrapping (using wildcard):**
+
+  ```bash
+  ocutil /path/to/local/folder/* oc://my-bucket/path/to/destination/
+  ```
+
+### Downloading
+
+- **Download a file:**
+
+  ```bash
+  ocutil oc://my-bucket/path/to/source/file.txt /path/to/local/destination/
+  ```
+
+- **Download a folder:**
+
+  ```bash
+  ocutil oc://my-bucket/path/to/source/ /path/to/local/destination/
+  ```
+
+## License
+
+This project is licensed under the MIT License.
