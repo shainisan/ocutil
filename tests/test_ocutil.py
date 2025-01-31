@@ -1,12 +1,14 @@
 # tests/test_ocutil.py
 
-# run tests with: python -m unittest discover -v tests
+# Run tests with: python -m unittest discover -v tests
 
 import os
+import sys
 import tempfile
 import shutil
 import unittest
 import logging
+from unittest.mock import patch
 
 from ocutil.utils.oci_manager import OCIManager
 from ocutil.utils.uploader import Uploader
@@ -14,7 +16,7 @@ from ocutil.utils.downloader import Downloader
 
 # Import the helper function for adjusting the remote object path.
 # (Ensure that you add adjust_remote_object_path in ocutil/main.py.)
-from ocutil.main import adjust_remote_object_path
+from ocutil.main import adjust_remote_object_path, main
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +220,47 @@ class TestOCUtil(unittest.TestCase):
         # If the provided object_path is the same as the basename, it should not be modified.
         basename = os.path.basename("dummy.txt")
         self.assertEqual(adjust_remote_object_path("dummy.txt", basename), basename)
+
+    # --- New tests to simulate main() behavior for directory uploads ---
+
+    def test_main_upload_folder_without_wildcard(self):
+        """
+        Simulate calling:
+            ocutil folder/ oc://test-bucket/
+        Expect that since the source (folder/) does not include a wildcard,
+        the main() logic will wrap the folder by appending the folder’s basename.
+        """
+        test_args = ["ocutil", self.folder_path, f"oc://{self.BUCKET_NAME}/"]
+        with patch.object(sys, 'argv', test_args):
+            with patch('ocutil.utils.uploader.Uploader.upload_folder') as mock_upload_folder:
+                main()
+                # The uploader.upload_folder is called with keyword argument object_prefix.
+                # Since no object path was provided in the destination, main() should set:
+                # object_prefix = basename(self.folder_path)
+                expected_prefix = os.path.basename(os.path.normpath(self.folder_path))
+                mock_upload_folder.assert_called_once()
+                # Get the keyword arguments passed to upload_folder
+                kwargs = mock_upload_folder.call_args.kwargs
+                self.assertEqual(kwargs.get('object_prefix'), expected_prefix,
+                                 "Expected the folder basename to be appended as the remote prefix.")
+
+    def test_main_upload_folder_with_wildcard(self):
+        """
+        Simulate calling:
+            ocutil folder/* oc://test-bucket/
+        Since the source includes a wildcard ('*'), the main() logic should not wrap
+        the folder (i.e. should leave the object_prefix as provided, which in this case is empty).
+        """
+        test_args = ["ocutil", os.path.join(self.folder_path, "*"), f"oc://{self.BUCKET_NAME}/"]
+        with patch.object(sys, 'argv', test_args):
+            with patch('ocutil.utils.uploader.Uploader.upload_folder') as mock_upload_folder:
+                main()
+                # For destination "oc://test-bucket/", parse_remote_path returns object_path = "".
+                expected_prefix = ""
+                mock_upload_folder.assert_called_once()
+                kwargs = mock_upload_folder.call_args.kwargs
+                self.assertEqual(kwargs.get('object_prefix'), expected_prefix,
+                                 "Expected the remote prefix to remain unchanged when using wildcard.")
 
 if __name__ == "__main__":
     unittest.main()
