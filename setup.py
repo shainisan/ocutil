@@ -1,17 +1,21 @@
-from setuptools import setup
+# setup.py
+
+from setuptools import setup, find_packages
 
 setup(
     name='ocutil',
-    version='0.1.0',
-    py_modules=['ocutil'],  # Tells setuptools to treat ocutil.py as a module named 'ocutil'
+    version='1.0.0',
+    description='Oracle Cloud Object Storage CLI utility',
+    author='Your Name',
+    author_email='your.email@example.com',
+    packages=find_packages(),
     install_requires=[
-        'oci'
+        'oci',
     ],
     entry_points={
         'console_scripts': [
-            'ocutil=ocutil:main',  # 'ocutil.py' must have a function named 'main()'
-        ]
+            'ocutil=ocutil:main',
+        ],
     },
-    python_requires='>=3.7',
-    description='A simple CLI to upload files to Oracle Cloud Object Storage'
+    python_requires='>=3.6',
 )
