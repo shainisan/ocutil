@@ -1,6 +1,6 @@
 # tests/test_ocutil.py
 
-# run: python -m unittest discover tests
+# run tests with: python -m unittest discover -v tests
 
 import os
 import tempfile
@@ -11,6 +11,10 @@ import logging
 from ocutil.utils.oci_manager import OCIManager
 from ocutil.utils.uploader import Uploader
 from ocutil.utils.downloader import Downloader
+
+# Import the helper function for adjusting the remote object path.
+# (Ensure that you add adjust_remote_object_path in ocutil/main.py.)
+from ocutil.main import adjust_remote_object_path
 
 logger = logging.getLogger(__name__)
 
@@ -130,15 +134,55 @@ class TestOCUtil(unittest.TestCase):
         self.assertEqual(content, "This is a single file")
 
     def test_upload_and_download_single_file_without_object_path(self):
-        # Test that if we provide a destination with no object path (or with a trailing slash)
-        # the uploader appends the basename of the source file.
-        # Simulate what main.py does.
-        adjusted_object_path = os.path.basename(self.single_file_path)  # e.g., "single_file.txt"
+        # Test that if we provide an empty destination the uploader appends the basename of the source file.
+        adjusted_object_path = adjust_remote_object_path(self.single_file_path, "")
         self.uploader.upload_single_file(self.single_file_path, self.BUCKET_NAME, adjusted_object_path)
         self.uploaded_objects.append(adjusted_object_path)
 
         # Now download using the adjusted object path.
         download_destination = os.path.join(self.download_dir, "downloaded_single_file_no_path.txt")
+        self.downloader.download_single_file(self.BUCKET_NAME, adjusted_object_path, download_destination)
+        self.assertTrue(os.path.exists(download_destination))
+        with open(download_destination, "r") as f:
+            content = f.read()
+        self.assertEqual(content, "This is a single file")
+
+    def test_upload_single_file_destination_folder_without_trailing_slash(self):
+        # Test that if we provide a remote destination that looks like a folder (no trailing slash)
+        # and is not equal to the source file's basename, the uploader appends the basename.
+        remote_object_path = "folder"  # provided as folder
+        expected_object_path = "folder/" + os.path.basename(self.single_file_path)
+        adjusted_object_path = adjust_remote_object_path(self.single_file_path, remote_object_path)
+        self.assertEqual(adjusted_object_path, expected_object_path,
+                         "Expected adjusted object path to be folder/<basename>")
+
+        # Now use the adjusted object path for upload.
+        self.uploader.upload_single_file(self.single_file_path, self.BUCKET_NAME, adjusted_object_path)
+        self.uploaded_objects.append(adjusted_object_path)
+
+        # Download and verify.
+        download_destination = os.path.join(self.download_dir, "downloaded_single_file_folder.txt")
+        self.downloader.download_single_file(self.BUCKET_NAME, adjusted_object_path, download_destination)
+        self.assertTrue(os.path.exists(download_destination))
+        with open(download_destination, "r") as f:
+            content = f.read()
+        self.assertEqual(content, "This is a single file")
+
+    def test_upload_single_file_destination_folder_with_trailing_slash(self):
+        # Test that if we provide a remote destination with a trailing slash,
+        # the uploader appends the basename.
+        remote_object_path = "folder/"  # provided as folder with trailing slash
+        expected_object_path = "folder/" + os.path.basename(self.single_file_path)
+        adjusted_object_path = adjust_remote_object_path(self.single_file_path, remote_object_path)
+        self.assertEqual(adjusted_object_path, expected_object_path,
+                         "Expected adjusted object path to be folder/<basename>")
+
+        # Now use the adjusted object path for upload.
+        self.uploader.upload_single_file(self.single_file_path, self.BUCKET_NAME, adjusted_object_path)
+        self.uploaded_objects.append(adjusted_object_path)
+
+        # Download and verify.
+        download_destination = os.path.join(self.download_dir, "downloaded_single_file_folder_trailing.txt")
         self.downloader.download_single_file(self.BUCKET_NAME, adjusted_object_path, download_destination)
         self.assertTrue(os.path.exists(download_destination))
         with open(download_destination, "r") as f:
@@ -160,6 +204,20 @@ class TestOCUtil(unittest.TestCase):
         with self.assertLogs("ocutil.downloader", level="ERROR") as log:
             self.downloader.download_single_file(self.BUCKET_NAME, remote_object_path, download_destination)
         self.assertTrue(any("Error downloading" in message for message in log.output))
+
+    # Additional tests for adjust_remote_object_path behavior.
+    def test_adjust_remote_object_path_empty(self):
+        # If no object_path is provided, should return basename.
+        self.assertEqual(adjust_remote_object_path("dummy.txt", ""), "dummy.txt")
+
+    def test_adjust_remote_object_path_explicit_filename(self):
+        # If an explicit filename is provided, it should remain unchanged.
+        self.assertEqual(adjust_remote_object_path("dummy.txt", "custom.txt"), "custom.txt")
+
+    def test_adjust_remote_object_path_same_as_basename(self):
+        # If the provided object_path is the same as the basename, it should not be modified.
+        basename = os.path.basename("dummy.txt")
+        self.assertEqual(adjust_remote_object_path("dummy.txt", basename), basename)
 
 if __name__ == "__main__":
     unittest.main()

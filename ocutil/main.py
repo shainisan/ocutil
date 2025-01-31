@@ -41,6 +41,22 @@ def setup_logging():
     )
     return logging.getLogger('ocutil')
 
+def adjust_remote_object_path(local_source: str, object_path: str) -> str:
+    """
+    Adjusts the remote object path for single file uploads.
+    - If object_path is empty, returns the basename of the local_source.
+    - If object_path has no extension and does not equal the basename of local_source,
+      then treats object_path as a folder name and appends the basename.
+    - Otherwise, returns object_path as-is.
+    """
+    if not object_path:
+        return os.path.basename(local_source)
+    else:
+        name, ext = os.path.splitext(object_path)
+        if ext == "" and (object_path.rstrip('/') != os.path.basename(local_source)):
+            return object_path.rstrip('/') + '/' + os.path.basename(local_source)
+        return object_path
+
 def main():
     logger = setup_logging()
 
@@ -121,19 +137,8 @@ def main():
                 return
 
             if os.path.isfile(local_source):
-                # If no object path is provided, use the file's basename.
-                if not object_path:
-                    object_path = os.path.basename(local_source)
-                    logger.info(f"Adjusted object path for file upload: '{object_path}'")
-                else:
-                    # Determine if the given object_path looks like a file name
-                    # by checking if it has an extension.
-                    name, ext = os.path.splitext(object_path)
-                    # If there's no extension and the provided object_path
-                    # does not already match the source filename, assume it’s a folder.
-                    if ext == "" and (object_path.rstrip('/') != os.path.basename(local_source)):
-                        object_path = object_path.rstrip('/') + '/' + os.path.basename(local_source)
-                        logger.info(f"Adjusted object path for file upload (treated as folder): '{object_path}'")
+                object_path = adjust_remote_object_path(local_source, object_path)
+                logger.info(f"Adjusted object path for file upload: '{object_path}'")
                 logger.info("Initiating single file upload.")
                 uploader.upload_single_file(local_source, bucket_name, object_path)
             elif os.path.isdir(local_source):
