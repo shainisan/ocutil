@@ -1,19 +1,18 @@
-from setuptools import setup, find_packages
+# setup.py
+from setuptools import setup
 
 setup(
     name='ocutil',
     version='0.1.0',
-    description='A simple CLI to upload files to Oracle Cloud Object Storage (like gsutil).',
-    author='Shai Nisan',
-    author_email='never_mind@example.com',
-    packages=find_packages(exclude=[]),
+    py_modules=['ocutil'],  # Tells setuptools to treat ocutil.py as a module
     install_requires=[
         'oci'
     ],
     entry_points={
         'console_scripts': [
-            'ocutil=ocutil:main'
-        ],
+            'ocutil=ocutil:main',  # "ocutil.py" must have a function "main()"
+        ]
     },
-    python_requires='>=3.6',
+    python_requires='>=3.7',
+    description='A simple CLI to upload files to Oracle Cloud Object Storage'
 )
