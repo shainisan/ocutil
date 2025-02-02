@@ -46,7 +46,8 @@ class Downloader:
             objects = []
             list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=object_prefix)
             objects.extend(list_response.data.objects)
-            while list_response.has_next_page:
+            # Use the next_page token to handle pagination.
+            while list_response.next_page:
                 list_response = self.object_storage.list_objects(
                     self.namespace, bucket_name, prefix=object_prefix, page=list_response.next_page)
                 objects.extend(list_response.data.objects)
@@ -56,7 +57,7 @@ class Downloader:
 
         # Filter out directory markers (names ending with '/') and ignore the prefix itself if present.
         files_to_download = [obj for obj in objects
-                             if not obj.name.endswith('/') and obj.name != object_prefix.rstrip('/')]
+                            if not obj.name.endswith('/') and obj.name != object_prefix.rstrip('/')]
 
         if not files_to_download:
             logger.warning("No objects found to download.")
@@ -74,3 +75,4 @@ class Downloader:
                 futures.append(executor.submit(self.download_single_file, bucket_name, obj.name, local_file_path))
             concurrent.futures.wait(futures)
         logger.info("Bulk download operation completed.")
+
