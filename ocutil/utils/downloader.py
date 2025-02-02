@@ -39,25 +39,51 @@ class Downloader:
 
     def download_folder(self, bucket_name: str, object_prefix: str, destination: str, parallel_count: int):
         """
-        Downloads all objects with the given prefix from OCI Object Storage into a local directory using parallel downloads.
+        Downloads all objects that have keys starting with the given prefix.
+        
+        To capture both the “single object” (if one exists with the same name as the folder)
+        and any objects stored “under” that prefix (for multipart uploads, etc.), this method
+        lists objects using both the provided prefix and (if the prefix ends with '/')
+        the same prefix with the trailing slash removed.
+        
+        It also ignores directory markers (names ending with '/') and (optionally) checksum files.
         """
         try:
             logger.info(f"Listing objects in bucket '{bucket_name}' with prefix '{object_prefix}'...")
             objects = []
+            
+            # List with the provided prefix.
             list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=object_prefix)
             objects.extend(list_response.data.objects)
-            # Use the next_page token to handle pagination.
             while list_response.next_page:
                 list_response = self.object_storage.list_objects(
                     self.namespace, bucket_name, prefix=object_prefix, page=list_response.next_page)
                 objects.extend(list_response.data.objects)
+            
+            # If the prefix ends with '/', also list using the prefix without trailing slash.
+            if object_prefix.endswith('/'):
+                alt_prefix = object_prefix.rstrip('/')
+                list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=alt_prefix)
+                objects.extend(list_response.data.objects)
+                while list_response.next_page:
+                    list_response = self.object_storage.list_objects(
+                        self.namespace, bucket_name, prefix=alt_prefix, page=list_response.next_page)
+                    objects.extend(list_response.data.objects)
         except Exception as e:
             logger.error(f"Error listing objects: {e}")
             return
 
-        # Filter out directory markers (names ending with '/') and ignore the prefix itself if present.
-        files_to_download = [obj for obj in objects
-                            if not obj.name.endswith('/') and obj.name != object_prefix.rstrip('/')]
+        # Remove duplicates (objects that may appear in both listings).
+        unique = {}
+        for obj in objects:
+            unique[obj.name] = obj
+        objects = list(unique.values())
+
+        # Filter out directory markers and (optionally) checksum files.
+        files_to_download = [
+            obj for obj in objects
+            if (not obj.name.endswith('/')) and (obj.name != object_prefix.rstrip('/')) and (not obj.name.endswith('.crc'))
+        ]
 
         if not files_to_download:
             logger.warning("No objects found to download.")
@@ -68,9 +94,14 @@ class Downloader:
         with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_count) as executor:
             futures = []
             for obj in files_to_download:
-                # Compute the relative path and remove any leading slash.
-                relative_path = obj.name[len(object_prefix):] if obj.name.startswith(object_prefix) else obj.name
-                relative_path = relative_path.lstrip('/')  # Remove leading slash if present
+                # Compute the relative path: if the object name starts with the provided prefix, remove it.
+                if obj.name.startswith(object_prefix):
+                    relative_path = obj.name[len(object_prefix):]
+                elif object_prefix.endswith('/') and obj.name.startswith(object_prefix.rstrip('/')):
+                    relative_path = obj.name[len(object_prefix.rstrip('/')):]
+                else:
+                    relative_path = obj.name
+                relative_path = relative_path.lstrip('/')  # Remove any leading slash.
                 local_file_path = os.path.join(destination, relative_path.replace('/', os.sep))
                 futures.append(executor.submit(self.download_single_file, bucket_name, obj.name, local_file_path))
             concurrent.futures.wait(futures)
