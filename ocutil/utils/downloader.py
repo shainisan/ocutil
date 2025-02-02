@@ -37,30 +37,18 @@ class Downloader:
         except Exception as e:
             logger.error(f"Error downloading '{object_name}': {e}")
 
-    def download_folder(self, bucket_name: str, object_path: str, destination: str, parallel_count: int):
+    def download_folder(self, bucket_name: str, object_path: str, destination: str, parallel_count: int, limit: int = 1000):
         """
         Downloads all objects under the given remote folder (object_path) from OCI Object Storage
         into a local directory. This implementation uses pagination (via the 'start_after' parameter)
         to list all objects and then downloads them concurrently.
         
         The local directory structure is built by stripping the remote folder prefix from each object's
-        full key. For example, if:
-          - object_path is "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet"
-          - then we append a trailing slash to form the listing prefix:
-                "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/"
-          - and for an object with key:
-                "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/part-00123.snappy.parquet"
-            the relative path becomes:
-                "part-00123.snappy.parquet"
-          - and the local file is written to:
-                os.path.join(destination, relative_path)
-        
-        Note: In your main.py you already compute a local destination by joining the destination directory
-        with the final folder name.
+        full key.
         """
-        # Ensure the prefix has a trailing slash.
+        # Ensure the prefix ends with a trailing slash.
         prefix = object_path if object_path.endswith('/') else object_path + '/'
-        limit = 1000  # Maximum objects per listing call
+        
         all_objects = []
         start_after = None  # For pagination using start_after
         page = 1
@@ -96,16 +84,14 @@ class Downloader:
 
         logger.info(f"Found a total of {len(all_objects)} objects in the folder '{prefix}'.")
 
-        # Now download all objects concurrently.
+        # Download all objects concurrently.
         with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_count) as executor:
             futures = []
             for obj in all_objects:
                 # Compute the relative path by stripping the remote folder prefix.
                 relative_path = obj.name[len(prefix):]
-                # Build the local file path.
                 local_file_path = os.path.join(destination, relative_path)
                 futures.append(executor.submit(self.download_single_file, bucket_name, obj.name, local_file_path))
-            # Wait for all downloads to finish.
             concurrent.futures.wait(futures)
 
         logger.info("Bulk download operation completed.")

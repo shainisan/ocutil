@@ -97,9 +97,9 @@ class TestOCUtil(unittest.TestCase):
         """
         Simulate a folder download with pagination by patching the list_objects method.
         We simulate three pages:
-          - Page 1: returns two objects.
-          - Page 2: returns two objects.
-          - Page 3: returns an empty list.
+        - Page 1: returns two objects.
+        - Page 2: returns two objects.
+        - Page 3: returns an empty list.
         We then verify that download_single_file is called exactly 4 times.
         """
         # Create dummy objects to simulate listing results.
@@ -129,10 +129,11 @@ class TestOCUtil(unittest.TestCase):
 
         with patch.object(self.downloader.object_storage, 'list_objects', side_effect=side_effect) as mock_list:
             with patch.object(self.downloader, 'download_single_file') as mock_download:
-                # Here, we use "prefix" as the object_path. Our implementation will add a trailing slash.
-                self.downloader.download_folder("dummy-bucket", "prefix", self.download_dir, parallel_count=2)
+                # Call download_folder with a small limit to force pagination.
+                self.downloader.download_folder("dummy-bucket", "prefix", self.download_dir, parallel_count=2, limit=2)
                 # We expect 4 download calls.
                 self.assertEqual(mock_download.call_count, 4)
+
 
     # (Other tests remain unchanged.)
     def test_upload_and_download_folder_without_trailing_slash(self):
@@ -264,21 +265,35 @@ class TestOCUtil(unittest.TestCase):
                 self.assertTrue(object_prefix.endswith('/'))
 
     def test_main_download_parquet_folder_prefix(self):
+        """
+        Simulate calling:
+            ocutil oc://dummy-bucket/datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/ <destination>
+        and verify that main() sets the download prefix correctly for a Parquet folder.
+        """
         remote_path = "oc://dummy-bucket/datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/"
         destination = "/dummy/destination"
         test_args = ["ocutil", remote_path, destination]
-        with patch.object(sys, 'argv', test_args):
-            with patch('ocutil.utils.downloader.Downloader.download_folder') as mock_download_folder:
-                main()
-                self.assertTrue(mock_download_folder.called)
-                args, kwargs = mock_download_folder.call_args
-                bucket_used = args[0]
-                prefix_used = args[1]
-                # With the new implementation, the expected prefix is simply the parsed object_path
-                # appended with a trailing slash.
-                expected_prefix = "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/"
-                self.assertEqual(bucket_used, "dummy-bucket")
-                self.assertEqual(prefix_used, expected_prefix)
+
+        # Patch os.path.isdir to return True for the destination.
+        with patch("os.path.isdir", return_value=True):
+            with patch.object(sys, 'argv', test_args):
+                with patch('ocutil.utils.downloader.Downloader.download_folder') as mock_download_folder:
+                    main()
+                    # Downloader.download_folder is called with the following signature:
+                    # download_folder(bucket_name, object_prefix, destination, parallel_count)
+                    self.assertTrue(mock_download_folder.called, "Downloader.download_folder should be called.")
+                    args, kwargs = mock_download_folder.call_args
+                    bucket_used = args[0]
+                    prefix_used = args[1]
+                    # With the new implementation, parse_remote_path returns the object_path without trailing slash.
+                    # main() uses os.path.basename(os.path.normpath(object_path)) to determine the local folder.
+                    # For this remote path:
+                    #    object_path = "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet"
+                    # So the expected prefix passed to download_folder should be the raw object_path.
+                    expected_prefix = "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet"
+                    self.assertEqual(bucket_used, "dummy-bucket")
+                    self.assertEqual(prefix_used, expected_prefix)
+
 
 if __name__ == "__main__":
     unittest.main()
