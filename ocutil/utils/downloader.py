@@ -58,7 +58,7 @@ class Downloader:
             objects_full = []
             list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=full_prefix)
             objects_full.extend(list_response.data.objects)
-            while list_response.next_page:
+            while list_response.next_page not in (None, ''):
                 list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=full_prefix, page=list_response.next_page)
                 objects_full.extend(list_response.data.objects)
             
@@ -66,7 +66,7 @@ class Downloader:
             objects_parts = []
             list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=part_prefix)
             objects_parts.extend(list_response.data.objects)
-            while list_response.next_page:
+            while list_response.next_page not in (None, ''):
                 list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=part_prefix, page=list_response.next_page)
                 objects_parts.extend(list_response.data.objects)
             
