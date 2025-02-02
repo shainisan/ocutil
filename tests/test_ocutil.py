@@ -303,5 +303,24 @@ class TestOCUtil(unittest.TestCase):
                 self.assertCountEqual(downloaded_names, expected_names,
                                       "Downloaded object names do not match expected names.")
 
+
+    def test_main_download_folder_prefix_trailing_slash(self):
+        """
+        Simulate calling:
+            ocutil oc://dummy-bucket/folder/ <destination>
+        and verify that main() calls Downloader.download_folder with a prefix that ends with a slash.
+        """
+        # We simulate a remote folder download
+        test_args = ["ocutil", "oc://dummy-bucket/folder/", self.download_dir]
+        with patch.object(sys, 'argv', test_args):
+            with patch('ocutil.utils.downloader.Downloader.download_folder') as mock_download_folder:
+                main()
+                # Grab the arguments with which download_folder was called.
+                # The signature is: download_folder(bucket_name, object_prefix, destination, parallel_count)
+                args = mock_download_folder.call_args.args
+                object_prefix = args[1]
+                self.assertTrue(object_prefix.endswith('/'),
+                                "Expected object prefix to end with '/' for folder downloads")
+
 if __name__ == "__main__":
     unittest.main()

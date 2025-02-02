@@ -94,11 +94,13 @@ def main():
             bucket_name, object_path = parse_remote_path(remote_path)
 
             if remote_path.endswith('/'):
-                # Folder download: use folder name from object_path and create a destination subfolder
+                # Folder download: ensure the prefix ends with a slash
+                prefix = object_path if object_path.endswith('/') else f"{object_path}/"
                 folder_name = os.path.basename(os.path.normpath(object_path))
                 new_destination = os.path.join(local_destination, folder_name)
                 logger.info(f"Initiating bulk download with {cpu_count} parallel threads into '{new_destination}'.")
-                downloader.download_folder(bucket_name, object_path, new_destination, parallel_count=cpu_count)
+                downloader.download_folder(bucket_name, prefix, new_destination, parallel_count=cpu_count)
+
             else:
                 # Try downloading a single file first.
                 try:
@@ -114,6 +116,7 @@ def main():
                         # Ensure prefix ends with '/'
                         prefix = object_path if object_path.endswith('/') else f"{object_path}/"
                         downloader.download_folder(bucket_name, prefix, new_destination, parallel_count=cpu_count)
+
                     else:
                         logger.error(f"Error retrieving object: {e}")
                         sys.exit(1)
