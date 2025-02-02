@@ -92,13 +92,12 @@ def main():
             downloader = Downloader(oci_manager=oci_manager)
 
             bucket_name, object_path = parse_remote_path(remote_path)
-            # In this updated version we let the downloader decide which prefixes to list.
+            # Use the raw folder path (object_path) as returned from parse_remote_path.
             folder_name = os.path.basename(os.path.normpath(object_path))
             new_destination = os.path.join(local_destination, folder_name)
             logger.info(f"Initiating bulk download with {cpu_count} parallel threads into '{new_destination}'.")
-            # Pass the raw folder object_path to download_folder; the downloader will add trailing slashes as needed and merge listings.
+            # Pass the raw folder path to the downloader.
             downloader.download_folder(bucket_name, object_path, new_destination, parallel_count=cpu_count)
-
 
         elif is_remote_path(destination):
             # Upload operation

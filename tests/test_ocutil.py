@@ -259,30 +259,28 @@ class TestOCUtil(unittest.TestCase):
 
     def test_download_folder_pagination(self):
         """
-        Simulate a paginated response by verifying that the CLI command is called.
-        Since our new implementation uses subprocess.run, we patch it and check that the command
-        includes the expected parameters.
+        Simulate a folder download by verifying that the CLI command is called with the correct parameters.
         """
         from subprocess import run as subprocess_run
-        test_prefix = "prefix/"
-        download_dest = self.download_dir  # use a dummy destination
+        test_object_path = "prefix/"
+        download_dest = self.download_dir  # dummy destination
 
         # Patch subprocess.run in our downloader module.
         with patch("ocutil.utils.downloader.subprocess.run") as mock_run:
-            self.downloader.download_folder("dummy-bucket", test_prefix, download_dest, parallel_count=2)
-            # Verify that subprocess.run was called at least once.
+            self.downloader.download_folder("dummy-bucket", test_object_path, download_dest, parallel_count=2)
             self.assertTrue(mock_run.called, "Expected subprocess.run to be called for bulk download.")
-            # Extract the command from the first call.
+            # Extract the command.
             cmd = mock_run.call_args[0][0]
-            # Check that the command includes the proper options.
+            # Check that the command contains the expected options.
             self.assertIn("--bucket-name", cmd)
             self.assertIn("dummy-bucket", cmd)
             self.assertIn("--download-dir", cmd)
             self.assertIn(download_dest, cmd)
             self.assertIn("--prefix", cmd)
-            # The prefix should be test_prefix with a trailing slash.
-            expected_cli_prefix = test_prefix if test_prefix.endswith('/') else f"{test_prefix}/"
+            expected_cli_prefix = test_object_path if test_object_path.endswith('/') else f"{test_object_path}/"
             self.assertIn(expected_cli_prefix, cmd)
+            self.assertIn("--flatten", cmd)
+
 
 
     def test_main_download_folder_prefix_trailing_slash(self):
