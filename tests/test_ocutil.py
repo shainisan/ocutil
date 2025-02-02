@@ -2,6 +2,8 @@
 
 # Run tests with: python -m unittest discover -v tests
 
+# tests/test_ocutil.py
+
 import os
 import sys
 import tempfile
@@ -15,7 +17,6 @@ from ocutil.utils.uploader import Uploader
 from ocutil.utils.downloader import Downloader
 
 # Import the helper function for adjusting the remote object path.
-# (Ensure that you add adjust_remote_object_path in ocutil/main.py.)
 from ocutil.main import adjust_remote_object_path, main
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,6 @@ class TestOCUtil(unittest.TestCase):
 
         # Upload the folder.
         self.uploader.upload_folder(self.folder_path, self.BUCKET_NAME, object_prefix, parallel_count=2)
-        # Record expected uploaded objects.
         self.uploaded_objects.extend([
             f"{object_prefix}file1.txt",
             f"{object_prefix}file2.txt"
@@ -93,23 +93,60 @@ class TestOCUtil(unittest.TestCase):
         self.assertEqual(content1, "This is file 1")
         self.assertEqual(content2, "This is file 2")
 
+    def test_download_folder_pagination(self):
+        """
+        Simulate a folder download with pagination by patching the list_objects method.
+        We simulate three pages:
+          - Page 1: returns two objects.
+          - Page 2: returns two objects.
+          - Page 3: returns an empty list.
+        We then verify that download_single_file is called exactly 4 times.
+        """
+        # Create dummy objects to simulate listing results.
+        DummyObj = lambda name: type("DummyObj", (), {"name": name})
+        dummy_obj1 = DummyObj("prefix/obj1.txt")
+        dummy_obj2 = DummyObj("prefix/obj2.txt")
+        dummy_obj3 = DummyObj("prefix/obj3.txt")
+        dummy_obj4 = DummyObj("prefix/obj4.txt")
+
+        # Build three dummy responses.
+        DummyResponse = lambda objects: type("DummyResponse", (), {
+            "data": type("DummyData", (), {"objects": objects}),
+            "headers": {}
+        })
+        responses = [
+            DummyResponse([dummy_obj1, dummy_obj2]),
+            DummyResponse([dummy_obj3, dummy_obj4]),
+            DummyResponse([])  # Third page: no objects
+        ]
+
+        call_count = 0
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            response = responses[call_count]
+            call_count += 1
+            return response
+
+        with patch.object(self.downloader.object_storage, 'list_objects', side_effect=side_effect) as mock_list:
+            with patch.object(self.downloader, 'download_single_file') as mock_download:
+                # Here, we use "prefix" as the object_path. Our implementation will add a trailing slash.
+                self.downloader.download_folder("dummy-bucket", "prefix", self.download_dir, parallel_count=2)
+                # We expect 4 download calls.
+                self.assertEqual(mock_download.call_count, 4)
+
+    # (Other tests remain unchanged.)
     def test_upload_and_download_folder_without_trailing_slash(self):
-        # Use a remote prefix that does NOT end with a slash.
         object_prefix = "test_folder_no_slash"  # no trailing slash provided
 
-        # Upload the folder.
         self.uploader.upload_folder(self.folder_path, self.BUCKET_NAME, object_prefix, parallel_count=2)
-        # Even if no trailing slash was provided, uploader should use:
         self.uploaded_objects.extend([
             f"{object_prefix}/file1.txt",
             f"{object_prefix}/file2.txt"
         ])
 
-        # Download the folder.
         download_destination = os.path.join(self.download_dir, "test_folder_no_slash")
         self.downloader.download_folder(self.BUCKET_NAME, object_prefix, download_destination, parallel_count=2)
 
-        # Verify that the files have been downloaded correctly.
         file1_path = os.path.join(download_destination, "file1.txt")
         file2_path = os.path.join(download_destination, "file2.txt")
         self.assertTrue(os.path.exists(file1_path))
@@ -122,12 +159,10 @@ class TestOCUtil(unittest.TestCase):
         self.assertEqual(content2, "This is file 2")
 
     def test_upload_and_download_single_file_with_explicit_object_name(self):
-        # Upload a single file using an explicit remote object name.
         remote_object_path = "explicit_single_file.txt"
         self.uploader.upload_single_file(self.single_file_path, self.BUCKET_NAME, remote_object_path)
         self.uploaded_objects.append(remote_object_path)
 
-        # Download the single file.
         download_destination = os.path.join(self.download_dir, "downloaded_explicit_single_file.txt")
         self.downloader.download_single_file(self.BUCKET_NAME, remote_object_path, download_destination)
         self.assertTrue(os.path.exists(download_destination))
@@ -136,12 +171,10 @@ class TestOCUtil(unittest.TestCase):
         self.assertEqual(content, "This is a single file")
 
     def test_upload_and_download_single_file_without_object_path(self):
-        # Test that if we provide an empty destination the uploader appends the basename of the source file.
         adjusted_object_path = adjust_remote_object_path(self.single_file_path, "")
         self.uploader.upload_single_file(self.single_file_path, self.BUCKET_NAME, adjusted_object_path)
         self.uploaded_objects.append(adjusted_object_path)
 
-        # Now download using the adjusted object path.
         download_destination = os.path.join(self.download_dir, "downloaded_single_file_no_path.txt")
         self.downloader.download_single_file(self.BUCKET_NAME, adjusted_object_path, download_destination)
         self.assertTrue(os.path.exists(download_destination))
@@ -150,19 +183,14 @@ class TestOCUtil(unittest.TestCase):
         self.assertEqual(content, "This is a single file")
 
     def test_upload_single_file_destination_folder_without_trailing_slash(self):
-        # Test that if we provide a remote destination that looks like a folder (no trailing slash)
-        # and is not equal to the source file's basename, the uploader appends the basename.
-        remote_object_path = "folder"  # provided as folder
+        remote_object_path = "folder"
         expected_object_path = "folder/" + os.path.basename(self.single_file_path)
         adjusted_object_path = adjust_remote_object_path(self.single_file_path, remote_object_path)
-        self.assertEqual(adjusted_object_path, expected_object_path,
-                         "Expected adjusted object path to be folder/<basename>")
+        self.assertEqual(adjusted_object_path, expected_object_path)
 
-        # Now use the adjusted object path for upload.
         self.uploader.upload_single_file(self.single_file_path, self.BUCKET_NAME, adjusted_object_path)
         self.uploaded_objects.append(adjusted_object_path)
 
-        # Download and verify.
         download_destination = os.path.join(self.download_dir, "downloaded_single_file_folder.txt")
         self.downloader.download_single_file(self.BUCKET_NAME, adjusted_object_path, download_destination)
         self.assertTrue(os.path.exists(download_destination))
@@ -171,19 +199,14 @@ class TestOCUtil(unittest.TestCase):
         self.assertEqual(content, "This is a single file")
 
     def test_upload_single_file_destination_folder_with_trailing_slash(self):
-        # Test that if we provide a remote destination with a trailing slash,
-        # the uploader appends the basename.
-        remote_object_path = "folder/"  # provided as folder with trailing slash
+        remote_object_path = "folder/"
         expected_object_path = "folder/" + os.path.basename(self.single_file_path)
         adjusted_object_path = adjust_remote_object_path(self.single_file_path, remote_object_path)
-        self.assertEqual(adjusted_object_path, expected_object_path,
-                         "Expected adjusted object path to be folder/<basename>")
+        self.assertEqual(adjusted_object_path, expected_object_path)
 
-        # Now use the adjusted object path for upload.
         self.uploader.upload_single_file(self.single_file_path, self.BUCKET_NAME, adjusted_object_path)
         self.uploaded_objects.append(adjusted_object_path)
 
-        # Download and verify.
         download_destination = os.path.join(self.download_dir, "downloaded_single_file_folder_trailing.txt")
         self.downloader.download_single_file(self.BUCKET_NAME, adjusted_object_path, download_destination)
         self.assertTrue(os.path.exists(download_destination))
@@ -192,7 +215,6 @@ class TestOCUtil(unittest.TestCase):
         self.assertEqual(content, "This is a single file")
 
     def test_upload_nonexistent_file(self):
-        # Attempt to upload a file that does not exist and capture the logged error.
         nonexistent_file = os.path.join(self.test_dir, "does_not_exist.txt")
         remote_object_path = "does_not_exist.txt"
         with self.assertLogs("ocutil.uploader", level="ERROR") as log:
@@ -200,146 +222,63 @@ class TestOCUtil(unittest.TestCase):
         self.assertTrue(any("does not exist" in message for message in log.output))
 
     def test_download_nonexistent_object(self):
-        # Attempt to download a non-existent object and capture the logged error.
         remote_object_path = "nonexistent_object.txt"
         download_destination = os.path.join(self.download_dir, "nonexistent_object.txt")
         with self.assertLogs("ocutil.downloader", level="ERROR") as log:
             self.downloader.download_single_file(self.BUCKET_NAME, remote_object_path, download_destination)
         self.assertTrue(any("Error downloading" in message for message in log.output))
 
-    # Additional tests for adjust_remote_object_path behavior.
     def test_adjust_remote_object_path_empty(self):
-        # If no object_path is provided, should return basename.
         self.assertEqual(adjust_remote_object_path("dummy.txt", ""), "dummy.txt")
 
     def test_adjust_remote_object_path_explicit_filename(self):
-        # If an explicit filename is provided, it should remain unchanged.
         self.assertEqual(adjust_remote_object_path("dummy.txt", "custom.txt"), "custom.txt")
 
     def test_adjust_remote_object_path_same_as_basename(self):
-        # If the provided object_path is the same as the basename, it should not be modified.
         basename = os.path.basename("dummy.txt")
         self.assertEqual(adjust_remote_object_path("dummy.txt", basename), basename)
 
-    # --- New tests to simulate main() behavior for directory uploads ---
-
     def test_main_upload_folder_without_wildcard(self):
-        """
-        Simulate calling:
-            ocutil folder/ oc://test-bucket/
-        Expect that since the source (folder/) does not include a wildcard,
-        the main() logic will wrap the folder by appending the folder’s basename.
-        """
         test_args = ["ocutil", self.folder_path, f"oc://{self.BUCKET_NAME}/"]
         with patch.object(sys, 'argv', test_args):
             with patch('ocutil.utils.uploader.Uploader.upload_folder') as mock_upload_folder:
                 main()
-                # Since uploader.upload_folder is called positionally:
-                # arguments: (local_source, bucket_name, object_prefix, parallel_count=...)
                 args = mock_upload_folder.call_args.args
                 expected_prefix = os.path.basename(os.path.normpath(self.folder_path))
-                self.assertEqual(args[2], expected_prefix,
-                                "Expected the folder basename to be appended as the remote prefix.")
+                self.assertEqual(args[2], expected_prefix)
 
     def test_main_upload_folder_with_wildcard(self):
-        """
-        Simulate calling:
-            ocutil folder/* oc://test-bucket/
-        Since the source includes a wildcard ('*'), main() should expand it and
-        upload each file individually via upload_single_file.
-        """
         test_args = ["ocutil", os.path.join(self.folder_path, "*"), f"oc://{self.BUCKET_NAME}/"]
         with patch.object(sys, 'argv', test_args):
             with patch('ocutil.utils.uploader.Uploader.upload_single_file') as mock_upload_single:
                 main()
-                # In self.folder_path we created 2 files.
-                self.assertEqual(mock_upload_single.call_count, 2,
-                                "Expected two single file uploads when using wildcard.")
-
-
-    def test_download_folder_pagination(self):
-        """
-        Simulate a folder download by verifying that the CLI command is called with the correct parameters.
-        """
-        from subprocess import run as subprocess_run
-        test_object_path = "prefix/"
-        download_dest = self.download_dir  # dummy destination
-
-        # Patch subprocess.run in our downloader module.
-        with patch("ocutil.utils.downloader.subprocess.run") as mock_run:
-            self.downloader.download_folder("dummy-bucket", test_object_path, download_dest, parallel_count=2)
-            self.assertTrue(mock_run.called, "Expected subprocess.run to be called for bulk download.")
-            # Extract the command.
-            cmd = mock_run.call_args[0][0]
-            # Check that the command contains the expected options.
-            self.assertIn("--bucket-name", cmd)
-            self.assertIn("dummy-bucket", cmd)
-            self.assertIn("--download-dir", cmd)
-            self.assertIn(download_dest, cmd)
-            self.assertIn("--prefix", cmd)
-            expected_cli_prefix = test_object_path if test_object_path.endswith('/') else f"{test_object_path}/"
-            self.assertIn(expected_cli_prefix, cmd)
-            self.assertIn("--flatten", cmd)
-
-
+                self.assertEqual(mock_upload_single.call_count, 2)
 
     def test_main_download_folder_prefix_trailing_slash(self):
-        """
-        Simulate calling:
-            ocutil oc://dummy-bucket/folder/ <destination>
-        and verify that main() calls Downloader.download_folder with a prefix that ends with a slash.
-        """
-        # We simulate a remote folder download
         test_args = ["ocutil", "oc://dummy-bucket/folder/", self.download_dir]
         with patch.object(sys, 'argv', test_args):
             with patch('ocutil.utils.downloader.Downloader.download_folder') as mock_download_folder:
                 main()
-                # Grab the arguments with which download_folder was called.
-                # The signature is: download_folder(bucket_name, object_prefix, destination, parallel_count)
                 args = mock_download_folder.call_args.args
                 object_prefix = args[1]
-                self.assertTrue(object_prefix.endswith('/'),
-                                "Expected object prefix to end with '/' for folder downloads")
-
+                self.assertTrue(object_prefix.endswith('/'))
 
     def test_main_download_parquet_folder_prefix(self):
-        """
-        Simulate calling:
-            ocutil oc://dummy-bucket/datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/ <destination>
-        and verify that main() sets the download prefix correctly for a Parquet folder.
-        
-        Expected behavior:
-        - parse_remote_path() should return:
-            bucket_name = "dummy-bucket"
-            object_path = "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet"
-        - Since the remote path ends with '/' and object_path ends with ".parquet",
-            main() should set the prefix to: "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/part-"
-        """
-        # Prepare dummy arguments.
         remote_path = "oc://dummy-bucket/datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/"
         destination = "/dummy/destination"
         test_args = ["ocutil", remote_path, destination]
-        
-        from ocutil.main import main  # import main() from your main.py
-        
-        # Patch sys.argv to simulate command-line invocation.
         with patch.object(sys, 'argv', test_args):
-            # Patch Downloader.download_folder to capture its call without executing the download.
             with patch('ocutil.utils.downloader.Downloader.download_folder') as mock_download_folder:
                 main()
-                # Downloader.download_folder is called with the following signature:
-                # download_folder(bucket_name, prefix, destination, parallel_count)
-                self.assertTrue(mock_download_folder.called, "Downloader.download_folder should be called.")
+                self.assertTrue(mock_download_folder.called)
                 args, kwargs = mock_download_folder.call_args
                 bucket_used = args[0]
                 prefix_used = args[1]
-                # The expected prefix is the object_path from parse_remote_path with "/part-" appended.
-                expected_prefix = "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/part-"
-                
-                self.assertEqual(bucket_used, "dummy-bucket",
-                                "Expected bucket to be 'dummy-bucket'.")
-                self.assertEqual(prefix_used, expected_prefix,
-                                f"Expected prefix to be '{expected_prefix}', but got '{prefix_used}'.")
+                # With the new implementation, the expected prefix is simply the parsed object_path
+                # appended with a trailing slash.
+                expected_prefix = "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/"
+                self.assertEqual(bucket_used, "dummy-bucket")
+                self.assertEqual(prefix_used, expected_prefix)
 
 if __name__ == "__main__":
     unittest.main()
