@@ -92,38 +92,20 @@ def main():
             downloader = Downloader(oci_manager=oci_manager)
 
             bucket_name, object_path = parse_remote_path(remote_path)
-
-            if remote_path.endswith('/'):
-                # Folder download: ensure the prefix ends with a slash
-                prefix = object_path if object_path.endswith('/') else f"{object_path}/"
-                folder_name = os.path.basename(os.path.normpath(object_path))
-                new_destination = os.path.join(local_destination, folder_name)
-                logger.info(f"Initiating bulk download with {cpu_count} parallel threads into '{new_destination}'.")
-                downloader.download_folder(bucket_name, prefix, new_destination, parallel_count=cpu_count)
-
+            # If the remote path ends with '/' and the folder name ends with ".parquet",
+            # use a prefix that forces listing only objects starting with "part-".
+            if remote_path.endswith('/') and object_path.endswith(".parquet"):
+                # Note: object_path from parse_remote_path() does not include a trailing slash,
+                # so we add one and then append "part-"
+                prefix = object_path + "/part-"
             else:
-                # Try downloading a single file first.
-                try:
-                    oci_manager.object_storage.get_object(oci_manager.namespace, bucket_name, object_path)
-                    local_path = os.path.join(local_destination, os.path.basename(object_path))
-                    logger.info("Initiating single file download.")
-                    downloader.download_single_file(bucket_name, object_path, local_path)
-                except oci.exceptions.ServiceError as e:
-                    if e.status == 404:
-                        logger.info("File not found. Treating remote path as folder download.")
-                        folder_name = os.path.basename(os.path.normpath(object_path))
-                        new_destination = os.path.join(local_destination, folder_name)
-                        # Ensure prefix ends with '/'
-                        prefix = object_path if object_path.endswith('/') else f"{object_path}/"
-                        downloader.download_folder(bucket_name, prefix, new_destination, parallel_count=cpu_count)
+                # Otherwise, ensure the prefix ends with a slash.
+                prefix = object_path if object_path.endswith('/') else f"{object_path}/"
 
-                    else:
-                        logger.error(f"Error retrieving object: {e}")
-                        sys.exit(1)
-                except Exception as e:
-                    logger.error(f"Unexpected error during download: {e}")
-                    sys.exit(1)
-
+            folder_name = os.path.basename(os.path.normpath(object_path))
+            new_destination = os.path.join(local_destination, folder_name)
+            logger.info(f"Initiating bulk download with {cpu_count} parallel threads into '{new_destination}'. Using prefix '{prefix}'")
+            downloader.download_folder(bucket_name, prefix, new_destination, parallel_count=cpu_count)
 
         elif is_remote_path(destination):
             # Upload operation
@@ -148,20 +130,15 @@ def main():
                     logger.error(f"No files matched wildcard: {source}")
                     sys.exit(1)
                 for file_path in files:
-                    # For each file, adjust remote object path.
                     adjusted_path = adjust_remote_object_path(file_path, object_path)
                     logger.info(f"Initiating single file upload for '{file_path}' as '{adjusted_path}'.")
                     uploader.upload_single_file(file_path, bucket_name, adjusted_path)
             elif os.path.isfile(local_source):
-                # Single file upload.
                 object_path = adjust_remote_object_path(local_source, object_path)
                 logger.info(f"Adjusted object path for file upload: '{object_path}'")
                 logger.info("Initiating single file upload.")
                 uploader.upload_single_file(local_source, bucket_name, object_path)
             elif os.path.isdir(local_source):
-                # Folder upload.
-                # If no wildcard was used and remote object_path is empty or ends with '/',
-                # then prepend the folder’s basename.
                 if not object_path:
                     object_path = os.path.basename(os.path.normpath(local_source))
                 elif object_path.endswith('/'):

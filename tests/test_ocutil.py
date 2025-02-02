@@ -322,53 +322,45 @@ class TestOCUtil(unittest.TestCase):
                 self.assertTrue(object_prefix.endswith('/'),
                                 "Expected object prefix to end with '/' for folder downloads")
 
-    def test_download_folder_parquet_and_parts(self):
+
+    def test_main_download_parquet_folder_prefix(self):
         """
-        Simulate a folder that contains both an actual parquet file (stored with the key
-        'foldername') and its multipart objects (stored under 'foldername/').
-        We also simulate the existence of a checksum file (ending with '.crc') that should be filtered out.
-        """
-        # Create dummy objects with a 'name' attribute.
-        class DummyObject:
-            def __init__(self, name):
-                self.name = name
-
-        # Dummy list response mimicking OCI's list_objects response.
-        class DummyListResponse:
-            def __init__(self, objects, next_page=None):
-                self.data = type("Data", (), {"objects": objects})
-                self.next_page = next_page
-
-        # Simulate:
-        # - The actual parquet file stored as 'foldername'
-        # - One multipart part stored as 'foldername/part-00000-abc.snappy.parquet'
-        # - A checksum file 'foldername/part-00000-abc.snappy.parquet.crc' that should be ignored.
-        dummy_file = DummyObject("eval_set_ML_v3.parquet")
-        dummy_part = DummyObject("eval_set_ML_v3.parquet/part-00000-abc.snappy.parquet")
-        dummy_crc = DummyObject("eval_set_ML_v3.parquet/part-00000-abc.snappy.parquet.crc")
-
-        # For simplicity, we return the same dummy list response for both prefix calls.
-        dummy_response = DummyListResponse([dummy_file, dummy_part, dummy_crc])
+        Simulate calling:
+            ocutil oc://dummy-bucket/datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/ <destination>
+        and verify that main() sets the download prefix correctly for a Parquet folder.
         
-        # Patch list_objects to return our dummy response.
-        with patch.object(self.oci_manager.object_storage, 'list_objects', return_value=dummy_response) as mock_list:
-            # Patch download_single_file so that no real file IO happens.
-            with patch.object(self.downloader, 'download_single_file') as mock_download:
-                # Call download_folder with a trailing slash (simulate folder download).
-                prefix = "eval_set_ML_v3.parquet/"
-                self.downloader.download_folder("dummy-bucket", prefix, self.download_dir, parallel_count=2)
+        Expected behavior:
+        - parse_remote_path() should return:
+            bucket_name = "dummy-bucket"
+            object_path = "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet"
+        - Since the remote path ends with '/' and object_path ends with ".parquet",
+            main() should set the prefix to: "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/part-"
+        """
+        # Prepare dummy arguments.
+        remote_path = "oc://dummy-bucket/datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/"
+        destination = "/dummy/destination"
+        test_args = ["ocutil", remote_path, destination]
+        
+        from ocutil.main import main  # import main() from your main.py
+        
+        # Patch sys.argv to simulate command-line invocation.
+        with patch.object(sys, 'argv', test_args):
+            # Patch Downloader.download_folder to capture its call without executing the download.
+            with patch('ocutil.utils.downloader.Downloader.download_folder') as mock_download_folder:
+                main()
+                # Downloader.download_folder is called with the following signature:
+                # download_folder(bucket_name, prefix, destination, parallel_count)
+                self.assertTrue(mock_download_folder.called, "Downloader.download_folder should be called.")
+                args, kwargs = mock_download_folder.call_args
+                bucket_used = args[0]
+                prefix_used = args[1]
+                # The expected prefix is the object_path from parse_remote_path with "/part-" appended.
+                expected_prefix = "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/part-"
                 
-                # We expect that:
-                # - dummy_crc is filtered out.
-                # - dummy_file and dummy_part are scheduled for download.
-                # That is, download_single_file is called twice.
-                self.assertEqual(mock_download.call_count, 2, "Expected two downloads (parquet file and part), excluding checksum files.")
-
-                # Optionally, verify that the downloaded object names are as expected.
-                downloaded_names = [call_args[0][1] for call_args in mock_download.call_args_list]
-                self.assertIn("eval_set_ML_v3.parquet", downloaded_names)
-                self.assertIn("eval_set_ML_v3.parquet/part-00000-abc.snappy.parquet", downloaded_names)
-
+                self.assertEqual(bucket_used, "dummy-bucket",
+                                "Expected bucket to be 'dummy-bucket'.")
+                self.assertEqual(prefix_used, expected_prefix,
+                                f"Expected prefix to be '{expected_prefix}', but got '{prefix_used}'.")
 
 if __name__ == "__main__":
     unittest.main()
