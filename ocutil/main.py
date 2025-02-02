@@ -96,8 +96,9 @@ def main():
             folder_name = os.path.basename(os.path.normpath(object_path))
             new_destination = os.path.join(local_destination, folder_name)
             logger.info(f"Initiating bulk download with {cpu_count} parallel threads into '{new_destination}'.")
-            # Pass the raw folder path to the downloader.
+            # Pass the raw folder path to download_folder.
             downloader.download_folder(bucket_name, object_path, new_destination, parallel_count=cpu_count)
+
 
         elif is_remote_path(destination):
             # Upload operation

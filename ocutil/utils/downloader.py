@@ -41,15 +41,15 @@ class Downloader:
         """
         Downloads all objects under the given folder (object_path) from OCI Object Storage into
         a local directory using the OCI CLI bulk-download command.
-        
+
         The command constructed is equivalent to:
         oci os object bulk-download --bucket-name <bucket_name> --download-dir <destination>
-            --prefix <object_path_with_trailing_slash> --parallel-operations-count <parallel_count> --overwrite --flatten
-            
-        The --flatten option ensures that the downloaded files are placed directly into the destination
-        (without reproducing the full object key path).
+            --prefix <object_path_with_trailing_slash> --parallel-operations-count <parallel_count> --overwrite --delimiter "/"
+        
+        The --delimiter "/" option causes the CLI to return only objects whose name (after the prefix)
+        does not contain the delimiter, effectively flattening the output.
         """
-        # Ensure the prefix ends with '/'
+        # Ensure the prefix ends with a slash.
         prefix = object_path if object_path.endswith('/') else f"{object_path}/"
         
         # Build the CLI command.
@@ -60,7 +60,7 @@ class Downloader:
             "--prefix", prefix,
             "--parallel-operations-count", str(parallel_count),
             "--overwrite",
-            "--flatten"
+            "--delimiter", "/"
         ]
         
         import subprocess
@@ -70,4 +70,3 @@ class Downloader:
             logger.info("Bulk download operation completed via CLI.")
         except Exception as e:
             logger.error(f"Error executing CLI bulk-download: {e}")
-
