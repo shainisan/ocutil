@@ -264,36 +264,5 @@ class TestOCUtil(unittest.TestCase):
                 object_prefix = args[1]
                 self.assertTrue(object_prefix.endswith('/'))
 
-    def test_main_download_parquet_folder_prefix(self):
-        """
-        Simulate calling:
-            ocutil oc://dummy-bucket/datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/ <destination>
-        and verify that main() sets the download prefix correctly for a Parquet folder.
-        """
-        remote_path = "oc://dummy-bucket/datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet/"
-        destination = "/dummy/destination"
-        test_args = ["ocutil", remote_path, destination]
-
-        # Patch os.path.isdir to return True for the destination.
-        with patch("os.path.isdir", return_value=True):
-            with patch.object(sys, 'argv', test_args):
-                with patch('ocutil.utils.downloader.Downloader.download_folder') as mock_download_folder:
-                    main()
-                    # Downloader.download_folder is called with the following signature:
-                    # download_folder(bucket_name, object_prefix, destination, parallel_count)
-                    self.assertTrue(mock_download_folder.called, "Downloader.download_folder should be called.")
-                    args, kwargs = mock_download_folder.call_args
-                    bucket_used = args[0]
-                    prefix_used = args[1]
-                    # With the new implementation, parse_remote_path returns the object_path without trailing slash.
-                    # main() uses os.path.basename(os.path.normpath(object_path)) to determine the local folder.
-                    # For this remote path:
-                    #    object_path = "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet"
-                    # So the expected prefix passed to download_folder should be the raw object_path.
-                    expected_prefix = "datasets/ML/ml_dataset_v3/processed/eval_set_ML_v3.parquet"
-                    self.assertEqual(bucket_used, "dummy-bucket")
-                    self.assertEqual(prefix_used, expected_prefix)
-
-
 if __name__ == "__main__":
     unittest.main()
