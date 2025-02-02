@@ -259,49 +259,30 @@ class TestOCUtil(unittest.TestCase):
 
     def test_download_folder_pagination(self):
         """
-        Simulate a paginated response when listing objects from the bucket.
-        The first call returns two objects and a next page token,
-        and the second call returns one additional object.
-        Verify that all three files are downloaded.
+        Simulate a paginated response by verifying that the CLI command is called.
+        Since our new implementation uses subprocess.run, we patch it and check that the command
+        includes the expected parameters.
         """
-        # Create dummy objects with a 'name' attribute.
-        class DummyObject:
-            def __init__(self, name):
-                self.name = name
+        from subprocess import run as subprocess_run
+        test_prefix = "prefix/"
+        download_dest = self.download_dir  # use a dummy destination
 
-        # Create a dummy list response structure similar to OCI SDK's response.
-        class DummyListResponse:
-            def __init__(self, objects, next_page):
-                self.data = type("Data", (), {"objects": objects})
-                self.next_page = next_page
-
-        # Create dummy objects.
-        dummy_obj1 = DummyObject("prefix/file1.txt")
-        dummy_obj2 = DummyObject("prefix/file2.txt")
-        dummy_obj3 = DummyObject("prefix/file3.txt")
-
-        # Create two dummy responses: first with a next_page token, then no token.
-        first_response = DummyListResponse([dummy_obj1, dummy_obj2], "token")
-        second_response = DummyListResponse([dummy_obj3], None)
-
-        # Patch the list_objects method to return our dummy responses sequentially.
-        with patch.object(self.oci_manager.object_storage, 'list_objects', side_effect=[first_response, second_response]) as mock_list:
-            # Patch download_single_file so that we don't actually try to download data.
-            with patch.object(self.downloader, 'download_single_file') as mock_download:
-                # Call download_folder using a prefix that matches our dummy objects.
-                self.downloader.download_folder("dummy-bucket", "prefix/", self.download_dir, parallel_count=2)
-                
-                # Check that list_objects was called twice.
-                self.assertEqual(mock_list.call_count, 2, "Expected two calls to list_objects due to pagination.")
-                
-                # We expect download_single_file to be called three times (one per dummy object).
-                self.assertEqual(mock_download.call_count, 3, "Expected three download calls for three objects.")
-
-                # Optionally, verify that each dummy object's full name was passed to download_single_file.
-                downloaded_names = [call_args[0][1] for call_args in mock_download.call_args_list]
-                expected_names = ["prefix/file1.txt", "prefix/file2.txt", "prefix/file3.txt"]
-                self.assertCountEqual(downloaded_names, expected_names,
-                                      "Downloaded object names do not match expected names.")
+        # Patch subprocess.run in our downloader module.
+        with patch("ocutil.utils.downloader.subprocess.run") as mock_run:
+            self.downloader.download_folder("dummy-bucket", test_prefix, download_dest, parallel_count=2)
+            # Verify that subprocess.run was called at least once.
+            self.assertTrue(mock_run.called, "Expected subprocess.run to be called for bulk download.")
+            # Extract the command from the first call.
+            cmd = mock_run.call_args[0][0]
+            # Check that the command includes the proper options.
+            self.assertIn("--bucket-name", cmd)
+            self.assertIn("dummy-bucket", cmd)
+            self.assertIn("--download-dir", cmd)
+            self.assertIn(download_dest, cmd)
+            self.assertIn("--prefix", cmd)
+            # The prefix should be test_prefix with a trailing slash.
+            expected_cli_prefix = test_prefix if test_prefix.endswith('/') else f"{test_prefix}/"
+            self.assertIn(expected_cli_prefix, cmd)
 
 
     def test_main_download_folder_prefix_trailing_slash(self):

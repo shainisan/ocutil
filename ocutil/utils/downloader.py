@@ -40,61 +40,29 @@ class Downloader:
     def download_folder(self, bucket_name: str, object_path: str, destination: str, parallel_count: int):
         """
         Downloads all objects under the given folder (object_path) from OCI Object Storage into
-        a local directory using parallel downloads.
+        a local directory using the OCI CLI bulk-download command.
         
-        This function performs two listings:
-        1. Using the full folder prefix (object_path + '/')
-        2. Using the "part-" prefix (object_path + '/part-')
-        
-        The two listings are merged (by object name) to ensure that every file in the folder is downloaded.
-        Directory markers (keys ending with '/') are skipped.
+        This function constructs a command equivalent to:
+        oci os object bulk-download --bucket-name <bucket_name> --download-dir <destination>
+            --prefix <folder_prefix> --parallel-operations-count <parallel_count> --overwrite
         """
+        # Ensure the prefix ends with '/'
+        prefix = object_path if object_path.endswith('/') else f"{object_path}/"
+        
+        # Build the CLI command.
+        cmd = [
+            "oci", "os", "object", "bulk-download",
+            "--bucket-name", bucket_name,
+            "--download-dir", destination,
+            "--prefix", prefix,
+            "--parallel-operations-count", str(parallel_count),
+            "--overwrite"  # to avoid interactive prompt when >1000 objects
+        ]
+        
+        import subprocess
+        logger.info(f"Executing command: {' '.join(cmd)}")
         try:
-            # Define the two prefixes.
-            full_prefix = object_path if object_path.endswith('/') else f"{object_path}/"
-            part_prefix = full_prefix + "part-"
-            
-            logger.info(f"Listing objects with full prefix '{full_prefix}'...")
-            objects_full = []
-            list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=full_prefix)
-            objects_full.extend(list_response.data.objects)
-            while list_response.next_page not in (None, ''):
-                list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=full_prefix, page=list_response.next_page)
-                objects_full.extend(list_response.data.objects)
-            
-            logger.info(f"Listing objects with part prefix '{part_prefix}'...")
-            objects_parts = []
-            list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=part_prefix)
-            objects_parts.extend(list_response.data.objects)
-            while list_response.next_page not in (None, ''):
-                list_response = self.object_storage.list_objects(self.namespace, bucket_name, prefix=part_prefix, page=list_response.next_page)
-                objects_parts.extend(list_response.data.objects)
-            
-            # Merge the two listings (unique by object name).
-            merged = {obj.name: obj for obj in (objects_full + objects_parts)}
-            merged_objects = list(merged.values())
+            subprocess.run(cmd, check=True)
+            logger.info("Bulk download operation completed via CLI.")
         except Exception as e:
-            logger.error(f"Error listing objects: {e}")
-            return
-
-        # Filter out any directory markers (keys ending with '/')
-        files_to_download = [obj for obj in merged_objects if not obj.name.endswith('/')]
-        if not files_to_download:
-            logger.warning("No objects found to download.")
-            return
-
-        logger.info(f"Downloading {len(files_to_download)} objects to '{destination}' using {parallel_count} threads...")
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=parallel_count) as executor:
-            futures = []
-            for obj in files_to_download:
-                # Compute a relative path based on the full folder prefix.
-                if obj.name.startswith(full_prefix):
-                    relative_path = obj.name[len(full_prefix):]
-                else:
-                    relative_path = obj.name
-                relative_path = relative_path.lstrip('/')
-                local_file_path = os.path.join(destination, relative_path.replace('/', os.sep))
-                futures.append(executor.submit(self.download_single_file, bucket_name, obj.name, local_file_path))
-            concurrent.futures.wait(futures)
-        logger.info("Bulk download operation completed.")
+            logger.error(f"Error executing CLI bulk-download: {e}")
