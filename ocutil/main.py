@@ -92,20 +92,13 @@ def main():
             downloader = Downloader(oci_manager=oci_manager)
 
             bucket_name, object_path = parse_remote_path(remote_path)
-            # If the remote path ends with '/' and the folder name ends with ".parquet",
-            # use a prefix that forces listing only objects starting with "part-".
-            if remote_path.endswith('/') and object_path.endswith(".parquet"):
-                # Note: object_path from parse_remote_path() does not include a trailing slash,
-                # so we add one and then append "part-"
-                prefix = object_path + "/part-"
-            else:
-                # Otherwise, ensure the prefix ends with a slash.
-                prefix = object_path if object_path.endswith('/') else f"{object_path}/"
-
+            # In this updated version we let the downloader decide which prefixes to list.
             folder_name = os.path.basename(os.path.normpath(object_path))
             new_destination = os.path.join(local_destination, folder_name)
-            logger.info(f"Initiating bulk download with {cpu_count} parallel threads into '{new_destination}'. Using prefix '{prefix}'")
-            downloader.download_folder(bucket_name, prefix, new_destination, parallel_count=cpu_count)
+            logger.info(f"Initiating bulk download with {cpu_count} parallel threads into '{new_destination}'.")
+            # Pass the raw folder object_path to download_folder; the downloader will add trailing slashes as needed and merge listings.
+            downloader.download_folder(bucket_name, object_path, new_destination, parallel_count=cpu_count)
+
 
         elif is_remote_path(destination):
             # Upload operation
