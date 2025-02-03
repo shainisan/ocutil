@@ -90,6 +90,9 @@ class Downloader:
             for obj in all_objects:
                 # Compute the relative path by stripping the remote folder prefix.
                 relative_path = obj.name[len(prefix):]
+                if not relative_path:
+                    # Skip directory markers that exactly match the prefix.
+                    continue
                 local_file_path = os.path.join(destination, relative_path)
                 futures.append(executor.submit(self.download_single_file, bucket_name, obj.name, local_file_path))
             concurrent.futures.wait(futures)

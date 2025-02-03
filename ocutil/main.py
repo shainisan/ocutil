@@ -92,24 +92,24 @@ def main():
             downloader = Downloader(oci_manager=oci_manager)
 
             bucket_name, object_path = parse_remote_path(remote_path)
-            
-            # Try to check if the object exists as a file by using head_object.
-            is_file = False
-            try:
-                # head_object will succeed if the object exists.
-                oci_manager.object_storage.head_object(oci_manager.namespace, bucket_name, object_path)
-                is_file = True
-            except Exception as e:
-                # If head_object fails, then likely the key is a folder prefix.
-                logger.info(f"head_object did not find a file at '{object_path}'; assuming it's a folder. ({e})")
+            # Determine if we should treat this as a file or folder.
+            # If the remote path ends with a slash, or head_object fails, treat it as a folder.
+            if object_path.endswith('/'):
+                is_file = False
+            else:
+                try:
+                    oci_manager.object_storage.head_object(oci_manager.namespace, bucket_name, object_path)
+                    is_file = True
+                except Exception as e:
+                    logger.info(f"head_object did not find a file at '{object_path}'; assuming it's a folder. ({e})")
+                    is_file = False
 
             if is_file:
-                # Download as single file.
                 local_file_path = os.path.join(local_destination, os.path.basename(object_path))
                 logger.info(f"Initiating single file download into '{local_file_path}'.")
                 downloader.download_single_file(bucket_name, object_path, local_file_path)
             else:
-                # Download as folder.
+                # When downloading a folder, use the last part of the object_path as the local folder name.
                 folder_name = os.path.basename(os.path.normpath(object_path))
                 new_destination = os.path.join(local_destination, folder_name)
                 logger.info(f"Initiating bulk download with {cpu_count} parallel threads into '{new_destination}'.")
