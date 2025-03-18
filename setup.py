@@ -11,7 +11,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         'oci',
-        'tqdm',
+        'rich',
     ],
     entry_points={
         'console_scripts': [
