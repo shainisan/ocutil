@@ -4,6 +4,7 @@ import os
 import sys
 import multiprocessing
 import logging
+import time
 from urllib.parse import urlparse
 
 import oci
@@ -32,12 +33,16 @@ def parse_remote_path(remote_path: str):
     object_path = parsed.path.lstrip('/')
     return bucket_name, object_path
 
-def setup_logging():
-    """Configure logging format and level."""
+def setup_logging(log_file=None, verbose=False):
+    """Configure logging format, level, and handlers."""
+    log_level = logging.DEBUG if verbose else logging.INFO
+    handlers = [logging.StreamHandler(sys.stdout)]
+    if log_file:
+        handlers.append(logging.FileHandler(log_file))
     logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-        handlers=[logging.StreamHandler(sys.stdout)]
+        level=log_level,
+        format='%(asctime)s [%(levelname)s] %(threadName)s %(name)s: %(message)s',
+        handlers=handlers
     )
     return logging.getLogger('ocutil')
 
@@ -58,42 +63,38 @@ def adjust_remote_object_path(local_source: str, object_path: str) -> str:
         return object_path
 
 def main():
-    logger = setup_logging()
-
     parser = argparse.ArgumentParser(
         description="ocutil: Oracle Cloud Object Storage CLI (similar to gsutil)."
     )
     parser.add_argument("source", help="Source path. Can be a local file/directory or a remote path (oc://bucket/path).")
     parser.add_argument("destination", help="Destination path. Can be a remote path (oc://bucket/path) or a local directory.")
-    parser.add_argument(
-        "--config-profile",
-        default="DEFAULT",
-        help="OCI config profile (default: DEFAULT)."
-    )
+    parser.add_argument("--config-profile", default="DEFAULT", help="OCI config profile (default: DEFAULT).")
+    parser.add_argument("--parallel", type=int, default=multiprocessing.cpu_count(),
+                        help="Number of parallel threads for bulk operations (default: number of CPUs)")
+    parser.add_argument("--dry-run", action="store_true", help="Simulate actions without transferring data")
+    parser.add_argument("--log-file", type=str, help="File to write logs to")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     args = parser.parse_args()
 
-    source = args.source
-    destination = args.destination
-    config_profile = args.config_profile
-    cpu_count = multiprocessing.cpu_count()
+    logger = setup_logging(log_file=args.log_file, verbose=args.verbose)
+    parallel_count = args.parallel
 
-    # Determine operation based on which argument is remote
     try:
-        if is_remote_path(source):
+        if is_remote_path(args.source):
             # Download operation
-            remote_path = source
-            local_destination = destination
+            remote_path = args.source
+            local_destination = args.destination
 
             if not os.path.isdir(local_destination):
                 logger.error(f"Destination '{local_destination}' is not a valid directory.")
                 sys.exit(1)
 
-            oci_manager = OCIManager(config_profile=config_profile)
-            downloader = Downloader(oci_manager=oci_manager)
+            oci_manager = OCIManager(config_profile=args.config_profile)
+            # Pass the dry-run flag to Downloader
+            downloader = Downloader(oci_manager=oci_manager, dry_run=args.dry_run)
 
             bucket_name, object_path = parse_remote_path(remote_path)
             # Determine if we should treat this as a file or folder.
-            # If the remote path ends with a slash, or head_object fails, treat it as a folder.
             if object_path.endswith('/'):
                 is_file = False
             else:
@@ -107,60 +108,76 @@ def main():
             if is_file:
                 local_file_path = os.path.join(local_destination, os.path.basename(object_path))
                 logger.info(f"Initiating single file download into '{local_file_path}'.")
-                downloader.download_single_file(bucket_name, object_path, local_file_path)
+                if args.dry_run:
+                    logger.info(f"DRY-RUN: Would download file '{object_path}' from bucket '{bucket_name}' to '{local_file_path}'.")
+                else:
+                    downloader.download_single_file(bucket_name, object_path, local_file_path)
             else:
                 # When downloading a folder, use the last part of the object_path as the local folder name.
                 folder_name = os.path.basename(os.path.normpath(object_path))
                 new_destination = os.path.join(local_destination, folder_name)
-                logger.info(f"Initiating bulk download with {cpu_count} parallel threads into '{new_destination}'.")
-                downloader.download_folder(bucket_name, object_path, new_destination, parallel_count=cpu_count)
+                logger.info(f"Initiating bulk download with {parallel_count} parallel threads into '{new_destination}'.")
+                if args.dry_run:
+                    logger.info(f"DRY-RUN: Would download folder '{object_path}' from bucket '{bucket_name}' to '{new_destination}' with {parallel_count} threads.")
+                else:
+                    downloader.download_folder(bucket_name, object_path, new_destination, parallel_count=parallel_count)
 
-
-        elif is_remote_path(destination):
+        elif is_remote_path(args.destination):
             # Upload operation
-            local_source = source
-            remote_destination = destination
+            local_source = args.source
+            remote_destination = args.destination
 
-            oci_manager = OCIManager(config_profile=config_profile)
-            uploader = Uploader(oci_manager=oci_manager)
+            oci_manager = OCIManager(config_profile=args.config_profile)
+            # Pass the dry-run flag to Uploader
+            uploader = Uploader(oci_manager=oci_manager, dry_run=args.dry_run)
 
             try:
                 bucket_name, object_path = parse_remote_path(remote_destination)
             except ValueError as e:
                 logger.error(f"Error parsing remote path: {e}")
-                return
+                sys.exit(1)
 
             # --- NEW LOGIC: Check for wildcard in source ---
-            if '*' in source:
-                # Expand the wildcard into a list of files.
+            if '*' in local_source:
                 import glob
-                files = glob.glob(source)
+                files = glob.glob(local_source)
                 if not files:
-                    logger.error(f"No files matched wildcard: {source}")
+                    logger.error(f"No files matched wildcard: {local_source}")
                     sys.exit(1)
                 for file_path in files:
                     adjusted_path = adjust_remote_object_path(file_path, object_path)
-                    logger.info(f"Initiating single file upload for '{file_path}' as '{adjusted_path}'.")
-                    uploader.upload_single_file(file_path, bucket_name, adjusted_path)
+                    if args.dry_run:
+                        logger.info(f"DRY-RUN: Would upload '{file_path}' as '{adjusted_path}' to bucket '{bucket_name}'.")
+                    else:
+                        logger.info(f"Initiating single file upload for '{file_path}' as '{adjusted_path}'.")
+                        uploader.upload_single_file(file_path, bucket_name, adjusted_path)
             elif os.path.isfile(local_source):
                 object_path = adjust_remote_object_path(local_source, object_path)
                 logger.info(f"Adjusted object path for file upload: '{object_path}'")
-                logger.info("Initiating single file upload.")
-                uploader.upload_single_file(local_source, bucket_name, object_path)
+                if args.dry_run:
+                    logger.info(f"DRY-RUN: Would upload file '{local_source}' to bucket '{bucket_name}' as '{object_path}'.")
+                else:
+                    logger.info("Initiating single file upload.")
+                    uploader.upload_single_file(local_source, bucket_name, object_path)
             elif os.path.isdir(local_source):
                 if not object_path:
                     object_path = os.path.basename(os.path.normpath(local_source))
                 elif object_path.endswith('/'):
                     object_path = object_path.rstrip('/') + '/' + os.path.basename(os.path.normpath(local_source))
-                logger.info(f"Initiating bulk upload of folder '{local_source}' with {cpu_count} parallel threads.")
-                uploader.upload_folder(local_source, bucket_name, object_path, parallel_count=cpu_count)
+                if args.dry_run:
+                    logger.info(f"DRY-RUN: Would bulk upload folder '{local_source}' to bucket '{bucket_name}' under prefix '{object_path}' with {parallel_count} threads.")
+                else:
+                    logger.info(f"Initiating bulk upload of folder '{local_source}' with {parallel_count} parallel threads.")
+                    uploader.upload_folder(local_source, bucket_name, object_path, parallel_count=parallel_count)
             else:
                 logger.error(f"Source '{local_source}' is neither a file nor a directory.")
-                return
+                sys.exit(1)
         else:
             logger.error("Invalid command. Either the source or destination must be a remote path (oc://).")
             parser.print_help()
             sys.exit(1)
+
+        logger.info("Operation completed successfully.")
 
     except Exception as ex:
         logger.error(f"Operation failed: {ex}")

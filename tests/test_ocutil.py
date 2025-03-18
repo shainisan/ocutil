@@ -1,8 +1,7 @@
 # tests/test_ocutil.py
 
-# Run tests with: python -m unittest discover -v tests
-
-# tests/test_ocutil.py
+# run with:
+# python -m unittest discover -v tests
 
 import os
 import sys
@@ -16,7 +15,7 @@ from ocutil.utils.oci_manager import OCIManager
 from ocutil.utils.uploader import Uploader
 from ocutil.utils.downloader import Downloader
 
-# Import the helper function for adjusting the remote object path.
+# Import the helper function for adjusting the remote object path and the main entry.
 from ocutil.main import adjust_remote_object_path, main
 
 logger = logging.getLogger(__name__)
@@ -100,7 +99,7 @@ class TestOCUtil(unittest.TestCase):
         - Page 1: returns two objects.
         - Page 2: returns two objects.
         - Page 3: returns an empty list.
-        We then verify that download_single_file is called exactly 4 times.
+        We then verify that _download_file_no_progress is called exactly 4 times.
         """
         # Create dummy objects to simulate listing results.
         DummyObj = lambda name: type("DummyObj", (), {"name": name})
@@ -127,15 +126,16 @@ class TestOCUtil(unittest.TestCase):
             call_count += 1
             return response
 
-        with patch.object(self.downloader.object_storage, 'list_objects', side_effect=side_effect) as mock_list:
-            with patch.object(self.downloader, 'download_single_file') as mock_download:
+        # Patch the list_objects method on the oci_manager's object_storage
+        with patch.object(self.oci_manager.object_storage, 'list_objects', side_effect=side_effect) as mock_list:
+            with patch.object(self.downloader, '_download_file_no_progress') as mock_download:
                 # Call download_folder with a small limit to force pagination.
                 self.downloader.download_folder("dummy-bucket", "prefix", self.download_dir, parallel_count=2, limit=2)
                 # We expect 4 download calls.
                 self.assertEqual(mock_download.call_count, 4)
 
 
-    # (Other tests remain unchanged.)
+
     def test_upload_and_download_folder_without_trailing_slash(self):
         object_prefix = "test_folder_no_slash"  # no trailing slash provided
 
@@ -263,6 +263,58 @@ class TestOCUtil(unittest.TestCase):
                 args = mock_download_folder.call_args.args
                 object_prefix = args[1]
                 self.assertTrue(object_prefix.endswith('/'))
+
+    def test_dry_run_upload_folder(self):
+        """Test that dry-run upload logs intended actions without performing any upload."""
+        dry_run_uploader = Uploader(self.oci_manager, dry_run=True)
+        with self.assertLogs("ocutil.uploader", level="INFO") as log:
+            dry_run_uploader.upload_folder(self.folder_path, self.BUCKET_NAME, "dry_run_folder/", parallel_count=2)
+            # Assert that the log contains DRY-RUN messages.
+            self.assertTrue(any("DRY-RUN:" in message for message in log.output))
+    
+    def test_dry_run_download_folder(self):
+        """Test that dry-run download logs intended actions without performing any download."""
+        dry_run_downloader = Downloader(self.oci_manager, dry_run=True)
+        with self.assertLogs("ocutil.downloader", level="INFO") as log:
+            dry_run_downloader.download_folder(self.BUCKET_NAME, "dry_run_folder/", self.download_dir, parallel_count=2)
+            # Assert that the log contains DRY-RUN messages.
+            self.assertTrue(any("DRY-RUN:" in message for message in log.output))
+    
+    def test_upload_retry_error(self):
+        """Simulate an error during single file upload to test retry logic."""
+        # Force put_object to always raise an exception.
+        with patch.object(self.oci_manager.object_storage, 'put_object', side_effect=Exception("Simulated error")) as mock_put:
+            with self.assertLogs("ocutil.uploader", level="WARNING") as log:
+                self.uploader.upload_single_file(self.single_file_path, self.BUCKET_NAME, "error_simulated.txt")
+            # Check that retry warnings are logged.
+            self.assertTrue(any("retrying" in message for message in log.output))
+    
+    def test_download_retry_error(self):
+        """Simulate an error during single file download to test retry logic."""
+        with patch.object(self.oci_manager.object_storage, 'get_object', side_effect=Exception("Simulated error")) as mock_get:
+            with self.assertLogs("ocutil.downloader", level="WARNING") as log:
+                self.downloader.download_single_file(self.BUCKET_NAME, "error_simulated.txt", os.path.join(self.download_dir, "error_simulated.txt"))
+            self.assertTrue(any("retrying" in message for message in log.output))
+    
+    def test_summary_report_upload(self):
+        """Test that bulk upload logs a summary report with duration and total bytes uploaded."""
+        with self.assertLogs("ocutil.uploader", level="INFO") as log:
+            self.uploader.upload_folder(self.folder_path, self.BUCKET_NAME, "summary_folder/", parallel_count=2)
+        summary_msgs = [msg for msg in log.output if "Bulk upload operation completed" in msg]
+        self.assertTrue(len(summary_msgs) > 0, "No bulk upload summary report logged.")
+    
+    def test_summary_report_download(self):
+        """Test that bulk download logs a summary report with duration and total file count."""
+        # First, upload the folder so that there are files to download.
+        self.uploader.upload_folder(self.folder_path, self.BUCKET_NAME, "summary_download/", parallel_count=2)
+        self.uploaded_objects.extend([
+            f"summary_download/file1.txt",
+            f"summary_download/file2.txt"
+        ])
+        with self.assertLogs("ocutil.downloader", level="INFO") as log:
+            self.downloader.download_folder(self.BUCKET_NAME, "summary_download/", self.download_dir, parallel_count=2)
+        summary_msgs = [msg for msg in log.output if "Bulk download operation completed" in msg]
+        self.assertTrue(len(summary_msgs) > 0, "No bulk download summary report logged.")
 
 if __name__ == "__main__":
     unittest.main()
