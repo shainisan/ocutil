@@ -1,3 +1,8 @@
+**2.0.1**, 03.04.2025
+=======================
+**Changelog Summary:**
+- when passphrase isn't in the confic, the user is promped to type it. Better for security.
+
 **V2**
 =======================
 
