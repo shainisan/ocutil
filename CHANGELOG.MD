@@ -1,3 +1,12 @@
+**2.0.2**, 09.04.2025
+=======================
+**Changelog Summary:**
+- **New Feature: `ls` Command:** Added the `ls` command to list objects and prefixes within OCI Object Storage (e.g., `ocutil ls oc://bucket/prefix`). Supports standard, long (`-l`), human-readable size (`-lH`), and recursive (`-r`) listing formats. Features user-friendly relative path output with directory indicators.
+- **Enhanced Bulk Transfer Robustness:** Significantly improved reliability when copying (`cp`) large numbers of files by refining parallel error handling, ensuring individual file failures don't halt the entire process, and providing clearer aggregate failure reporting in summaries.
+- **Improved Upload Performance:** Utilizes OCI SDK's `UploadManager` for `cp` uploads, potentially increasing speed for large files via automatic parallel multipart uploads.
+- **Bug Fixes & Refinements:** Fixed inconsistent behavior in `ls` based on trailing slashes in the input path. Corrected underlying pagination parameters (`start` vs `start_with`) and relative path calculations in `ls`. Resolved specific `NameError` and `ValueError` issues. Refactored `main` script to use command subparsers (`cp`, `ls`) and extracted listing logic into a dedicated `Lister` class for better structure.
+- **Testing:** Significantly expanded test suite coverage for core transfer logic, error handling, `UploadManager` integration, and the new `ls` command variations.
+
 **2.0.1**, 03.04.2025
 =======================
 **Changelog Summary:**

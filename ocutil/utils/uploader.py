@@ -3,9 +3,12 @@ import os
 import logging
 import concurrent.futures
 import time
+import threading
 import oci # Import oci for exceptions
 # Import UploadManager
 from oci.object_storage import UploadManager
+from ocutil.utils.oci_manager import OCIManager
+
 # Import Rich progress components
 from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn
 
